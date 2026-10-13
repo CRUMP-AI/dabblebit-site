@@ -141,11 +141,20 @@ section { padding: clamp(3.5rem, 8vw, 6.5rem) 0; }
   height: 72px;
 }
 .wordmark {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
   font-weight: 900;
   font-size: 1.6rem;
   letter-spacing: -0.03em;
   color: var(--ink);
   text-decoration: none;
+}
+.wordmark-mark {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  object-fit: cover;
 }
 .wordmark .dot { color: var(--green); }
 .nav-links { display: flex; align-items: center; gap: 1.75rem; list-style: none; }
