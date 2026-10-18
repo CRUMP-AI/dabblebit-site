@@ -187,6 +187,28 @@ function abortErr() { const e = new Error("aborted"); e.name = "AbortError"; ret
   eq(r.btnDisabled, false, "button re-enabled after timeout");
   eq(r.inputDisabled, false, "field re-enabled after timeout");
 
+  // ---- headers received, body pending past the timeout ----
+  // (native fetch rejects a pending body read with AbortError on abort;
+  // that must surface as timeout, not malformed)
+  resetState();
+  global.fetch = (url, opts) => {
+    fetchCalls++;
+    const sig = opts.signal;
+    return Promise.resolve({
+      ok: true,
+      status: 200,
+      json: () => new Promise((_, reject) => {
+        if (sig.aborted) return reject(abortErr());
+        sig.addEventListener("abort", () => reject(abortErr()));
+      }),
+    });
+  };
+  await fireSubmit(200); // longer than the 60ms test timeout
+  r = snap();
+  ok(r.cls.includes("err") && /may or may not/.test(r.status),
+    "body-pending timeout shows timeout copy, not malformed");
+  ok(!r.reset && r.input === "tester@example.com", "body-pending timeout preserves input");
+
   // ---- failure then retry succeeds ----
   resetState();
   global.fetch = async () => { fetchCalls++; throw new Error("down"); };

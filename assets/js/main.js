@@ -159,7 +159,13 @@
           var httpOk = !!(res && res.ok);
           return res.json().then(
             function (data) { return classifyNotifyResult(httpOk, data); },
-            function () { return "malformed"; }
+            function (err) {
+              /* An abort while the body is still pending is a timeout, not a
+                 malformed response: rethrow so the outer catch reports it
+                 as uncertain delivery rather than an odd reply. */
+              if (err && err.name === "AbortError") throw err;
+              return "malformed";
+            }
           );
         })
         .then(settle)
