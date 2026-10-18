@@ -88,6 +88,8 @@
         return { text: "Hmm, that didn't go through — your email is still here, please try again.", cls: "form-status err", keepInput: true };
       case "malformed":
         return { text: "We got an odd reply from the signup service — your email is still here, please try again in a moment.", cls: "form-status err", keepInput: true };
+      case "timeout":
+        return { text: "That took too long to confirm — your signup may or may not have gone through. Your email is still here; please try again, and keep an eye out for our launch email just in case.", cls: "form-status err", keepInput: true };
       default: /* "network" */
         return { text: "Something splashed — please check your connection and try again.", cls: "form-status err", keepInput: true };
     }
@@ -96,14 +98,22 @@
   /* ---- Launch signup (FormSubmit AJAX) ----
      NOTE: the address owner must click FormSubmit's one-time activation
      email before submissions are delivered. First submit triggers it. */
+  var notifyConfig = {
+    timeoutMs: 15000,
+    endpoint: "https://formsubmit.co/ajax/gregory.d.crump@gmail.com",
+  };
   var form = document.getElementById("notify-form");
   if (form) {
     var email = document.getElementById("notify-email");
     var status = document.getElementById("notify-status");
     var submitBtn = form.querySelector('button[type="submit"]');
+    var inFlight = false;
 
     form.addEventListener("submit", function (e) {
       e.preventDefault();
+      /* Duplicate-submit guard: Enter in the field can re-fire submit
+         while the button is disabled, so the flag is the real gate. */
+      if (inFlight) return;
       var value = (email.value || "").trim();
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
         status.textContent = "Hmm, that email doesn't look quite right — try again?";
@@ -111,19 +121,39 @@
         email.focus();
         return;
       }
+      inFlight = true;
+      /* Prevent mid-flight edits: a success clears the field, and clearing
+         an address the visitor typed after submitting would lose it. */
+      email.disabled = true;
       submitBtn.disabled = true;
       submitBtn.textContent = "Joining…";
       status.textContent = "";
       status.className = "form-status";
 
-      fetch("https://formsubmit.co/ajax/gregory.d.crump@gmail.com", {
+      var controller = new AbortController();
+      var timer = setTimeout(function () { controller.abort(); }, notifyConfig.timeoutMs);
+
+      function settle(kind) {
+        clearTimeout(timer);
+        inFlight = false;
+        var c = notifyCopy(kind);
+        status.textContent = c.text;
+        status.className = c.cls;
+        if (!c.keepInput) form.reset();
+        email.disabled = false;
+        submitBtn.disabled = false;
+        submitBtn.textContent = "Notify me";
+      }
+
+      fetch(notifyConfig.endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
         body: JSON.stringify({
           email: value,
           _subject: "Dabblebit launch signup",
           _template: "table"
-        })
+        }),
+        signal: controller.signal,
       })
         .then(function (res) {
           var httpOk = !!(res && res.ok);
@@ -132,21 +162,10 @@
             function () { return "malformed"; }
           );
         })
-        .then(function (kind) {
-          var c = notifyCopy(kind);
-          status.textContent = c.text;
-          status.className = c.cls;
-          if (!c.keepInput) form.reset();
-          submitBtn.disabled = false;
-          submitBtn.textContent = "Notify me";
-        })
-        .catch(function () {
-          var c = notifyCopy("network");
-          status.textContent = c.text;
-          status.className = c.cls;
-          /* keep the typed email: do NOT reset */
-          submitBtn.disabled = false;
-          submitBtn.textContent = "Notify me";
+        .then(settle)
+        .catch(function (err) {
+          /* Timeout says nothing about whether the server received it. */
+          settle(err && err.name === "AbortError" ? "timeout" : "network");
         });
     });
   }
@@ -157,6 +176,10 @@
 
   /* node test hook — no-op in browsers (module is undefined there) */
   if (typeof module !== "undefined" && module.exports) {
-    module.exports = { classifyNotifyResult: classifyNotifyResult, notifyCopy: notifyCopy };
+    module.exports = {
+      classifyNotifyResult: classifyNotifyResult,
+      notifyCopy: notifyCopy,
+      notifyConfig: notifyConfig,
+    };
   }
 })();
